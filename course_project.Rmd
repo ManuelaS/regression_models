@@ -1,0 +1,91 @@
+---
+title: "Regression Models Course Project"
+author: "ManuelaS"
+date: "29 July 2017"
+output: html_document
+---
+## Executive summary
+"Motor Trend US"" magazine reported the dependence of fuel utilization expressed as miles per gallon (MPG) with 10 car features (including type of transmission) for n=32 models. In this report, we investigated the association between MPG and type of trasmission (manual vs automatic) *via* linear regression. We checked that linear regression assumptions were met. In a univariate linear regression analysis with trasmission type as the sole explanatory variable, we found that cars equipped with manual transmission consume 7.24 MGP more compared to those models with automatic transmission. In multivariate analyses, after adjusting for wt and qsec, we found that MPG was 2.94 higher in cars with manual vs automatic transmission.
+
+### Setup
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls(all=TRUE))
+suppressPackageStartupMessages(library(dplyr))
+suppressPackageStartupMessages(library(reshape2))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(corrplot))
+```
+### Get the dataset
+We loaded the dataset.
+```{r data}
+data(mtcars)
+```
+### Statistical inference
+The null hypothesis is that there is no difference in the population mean for MPG between automatic and manual trnsmissions. We tested this hypothesis by using a t-test. We assumed normality which we believed is a fair assumption given that we cannnot meaninfully test it with a sample size of only n=`r dim(mtcars)[1]` observations.
+```{r inference}
+ttest_results <- t.test(mpg ~ am, data=mtcars)
+```
+We found a statistically significant difference `r sprintf('(p-value=%.3f)',ttest_results$p.value)` in MPG when comparing manual `r sprintf('(mean=%.2f)',ttest_results$estimate[2])` with automatic `r sprintf('(mean=%.2f)',ttest_results$estimate[1])` transmissions and thus, we rejected the null hypothesis.
+
+### Univariate and multivariate linear regression models
+We fitted a simple univariate linear regression model with MPG (outcome) and am (transmission)
+```{r univariate_regression_model}
+model_am <- lm(mpg ~ as.factor(am), data=mtcars)
+```
+We observed that the expected MPG value for manual transmission was `r round(summary(model_am)$coefficients[2,1],2)` MPG higher in manual transmission compared to automatic transmission. However, this simple univariate model using only transmission as preditor yielded an adjusted R^2^ of `r sprintf('%.2f',summary(model_am)$adj.r.squared)` and thus accounted only for `r sprintf('%.0f%%',100*summary(model_am)$adj.r.squared)` of the variance.
+From the exploratory analyses reported in the appendix, we observed that weight (wt), displacement (disp) number of cylinders (cyl) and horse power (hp) are highly correlated with MPG. Additionally, cyl, wt, disp and hp are correlated strongly correlated with each other.
+To avoid issues with multi-collinearity, we selected wt as it was the predictor with the strongest association with MPG among all the other features and built a multivariate linear regression with wt and am.
+```{r multivariate_am_wt_regression_model}
+model_am_wt <- lm(mpg ~ as.factor(am) + wt, data=mtcars)
+```
+This model captured `r sprintf('%.0f%%',100*summary(model_am_wt)$adj.r.squared)` of the variance.  
+Next, given that we have no domain knowledge on fuel consumption, we fitted a multivariate model including all the predictors available to check whether we could fit a better model.
+```{r multivariate_full_regression_model}
+model_full <- lm(mpg ~ ., data=mtcars)
+```
+While this model accounted for `r sprintf('%.0f%%',100*summary(model_full)$adj.r.squared)` of the variance, none of the predictors were statistically significantly associated with MPG.
+We ran the function "step" that selects predictors that minimise the Akaike Information Criterion (AIC)
+```{r multivariate_final_regression_model}
+model_final <- step(model_full, direction='backward', trace=0)
+```
+The final model includes wt, qsec and am, and accounts for `r sprintf('%.0f%%',100*summary(model_final)$adj.r.squared)` of the variance. Additionally, out of 3 nested models we built, model_final was the best one in terms of reduction in sum of squares.
+```{r anova}
+anova_results <- anova(model_am, model_am_wt, model_final)
+```
+We plotted some diagnostic tests to ensure the assumptions to run linear regression are met:
+```{r diagnostic_plots, fig.width=18, fig.height=5}
+par(mfrow=c(1,4))
+plot(model_final)
+```
+Overall, we considered the assumptions met as:
+
+* residual vs fitted plot show no pattern and the points are spread along the line at 0;
+* points are found along the diagonal in the normal Q-Q plot without significant deviations;
+* points are spread along the line at 0, but show some ascending pattern. This may indicate that homoscedasticity is not met, 
+  however we have too few observations to fully ascertain this fact;
+* no points lied outside the Cook's distance, indicating that none of the points were influential.
+
+### Code availability
+Source code in Rmd format can be found at https://github.com/ManuelaS/regression_models.
+
+## Appendix
+
+### Information regarding the dataset
+```{r dataset_info}
+tools:::Rd2txt(utils:::.getHelpFile(as.character(help(mtcars))))
+````
+### Exploratory analyses
+To explore the datasets, we plotted boxplots and scatterplots for categorical and numeric features, respectivelly. Additionally, we examined the correlation of features with MPG and among themselves to help select which predictor to include in the regression model.
+```{r exploration}
+vars_to_explore <- setdiff(colnames(mtcars), 'mpg')
+
+#boxplots
+tmp <- melt(mtcars,measure.vars=c('cyl', 'vs', 'am', 'gear', 'carb'))
+ggplot(tmp, aes(x=as.factor(value), y=mpg)) + geom_boxplot() + geom_jitter(width=0.2) + facet_wrap(~variable, scales="free_x")
+#scatterplots
+tmp <- melt(mtcars,measure.vars=c('disp', 'hp', 'drat', 'qsec'))
+ggplot(tmp, aes(x=value, y=mpg)) + geom_point() + facet_wrap(~variable, scales="free_x")
+# correlation plot
+corrplot(cor(mtcars), order='AOE', method='ellipse', type='lower')
+```
